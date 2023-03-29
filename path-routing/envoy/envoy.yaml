@@ -1,9 +1,5 @@
-admin:
-  address:
-    socket_address:
-      address: 0.0.0.0
-      port_value: 9901
 static_resources:
+
   listeners:
   - name: listener_0
     address:
@@ -15,38 +11,71 @@ static_resources:
       - name: envoy.filters.network.http_connection_manager
         typed_config:
           "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
-          scheme_header_transformation:
-            scheme_to_overwrite: https
           stat_prefix: ingress_http
-          route_config:
-            name: local_route
-            virtual_hosts:
-            - name: local_service
-              domains: "*"
-              routes:
-              - match:
-                  prefix: "/"
-                route:
-                  cluster: go-application
+          access_log:
+          - name: envoy.access_loggers.stdout
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
           http_filters:
           - name: envoy.filters.http.router
             typed_config:
               "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
-  
+          route_config:
+            name: local_route
+            virtual_hosts:
+            - name: local_service
+              domains: ["*"]
+              routes:
+              - match:
+                  prefix: "/rewrite/google"
+                route:
+                  host_rewrite_literal: www.google.com
+                  prefix_rewrite: "/"
+                  cluster: rewrite_google
+              - match:
+                  prefix: "/rewrite/bing"
+                route:
+                  host_rewrite_literal: www.bing.com
+                  prefix_rewrite: "/"
+                  cluster: rewrite_bing
+
   clusters:
-  - name: go-application
-    connect_timeout: 30s
+  - name: rewrite_google
     type: LOGICAL_DNS
     # Comment out the following line to test on v6 networks
     dns_lookup_family: V4_ONLY
-    lb_policy: ROUND_ROBIN
     load_assignment:
-      cluster_name: go-application
+      cluster_name: rewrite_proxy
       endpoints:
       - lb_endpoints:
         - endpoint:
             address:
               socket_address:
-                address: "google.com"
+                address: www.google.com
                 port_value: 443
-              
+    transport_socket:
+      name: envoy.transport_sockets.tls
+      typed_config:
+        "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+        sni: www.google.com
+
+  - name: rewrite_bing
+    type: LOGICAL_DNS
+    # Comment out the following line to test on v6 networks
+    dns_lookup_family: V4_ONLY
+    load_assignment:
+      cluster_name: rewrite_proxy
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: www.bing.com
+                port_value: 443
+    transport_socket:
+      name: envoy.transport_sockets.tls
+      typed_config:
+        "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+        sni: www.bing.com
+
+  
